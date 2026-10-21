@@ -1,0 +1,24 @@
+
+services:
+  - type: web
+    name: arena-community
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn run:app
+    healthCheckPath: /healthz
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: arena-db
+          property: connectionString
+      - key: ADMIN_EMAIL
+        sync: false
+
+databases:
+  - name: arena-db
+    databaseName: arena
+    user: arena_user
