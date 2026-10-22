@@ -12,6 +12,7 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-this-in-render")
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
 
 DATA_DIR = Path(os.environ.get("ARENA_DATA_DIR", str(Path(__file__).parent / "instance")))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -44,6 +45,25 @@ def init_db():
     CREATE TABLE IF NOT EXISTS posts (
       id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       body TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS likes (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, post_id)
+    );
+    CREATE TABLE IF NOT EXISTS comments (
+      id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+      body TEXT NOT NULL CHECK(length(body) BETWEEN 1 AND 500),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS follows (
+      follower_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      followed_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (follower_id, followed_id),
+      CHECK (follower_id != followed_id)
     );
     """)
     conn.commit()
@@ -93,11 +113,38 @@ def signed_in(view):
     return wrapped
 
 
+def posts_with_stats(where_sql="", params=(), viewer_id=None, limit=50):
+    sql = """
+      SELECT p.id,p.body,p.created_at,p.user_id,u.username,
+        (SELECT COUNT(*) FROM likes l WHERE l.post_id=p.id) AS like_count,
+        (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS comment_count,
+        EXISTS(SELECT 1 FROM likes mine WHERE mine.post_id=p.id AND mine.user_id=?) AS liked_by_me
+      FROM posts p JOIN users u ON u.id=p.user_id
+    """
+    if where_sql:
+        sql += " WHERE " + where_sql
+    sql += " ORDER BY p.id DESC LIMIT ?"
+    return db().execute(sql, (viewer_id or -1, *params, limit)).fetchall()
+
+
+def comments_for_posts(posts):
+    ids = [p["id"] for p in posts]
+    if not ids:
+        return {}
+    marks = ",".join("?" for _ in ids)
+    rows = db().execute(
+        f"SELECT c.id,c.post_id,c.body,c.created_at,u.username FROM comments c JOIN users u ON u.id=c.user_id WHERE c.post_id IN ({marks}) ORDER BY c.id ASC",
+        ids
+    ).fetchall()
+    grouped = {post_id: [] for post_id in ids}
+    for row in rows:
+        grouped[row["post_id"]].append(row)
+    return grouped
+
+
 @app.route("/")
 def home():
-    posts = db().execute(
-        "SELECT p.id,p.body,p.created_at,u.username FROM posts p JOIN users u ON u.id=p.user_id ORDER BY p.id DESC LIMIT 8"
-    ).fetchall()
+    posts = posts_with_stats(viewer_id=g.user["id"] if g.user else None, limit=8)
     return render_template("index.html", posts=posts)
 
 
@@ -170,10 +217,8 @@ def logout():
 @app.route("/feed")
 @signed_in
 def feed():
-    posts = db().execute(
-        "SELECT p.id,p.body,p.created_at,u.username FROM posts p JOIN users u ON u.id=p.user_id ORDER BY p.id DESC LIMIT 50"
-    ).fetchall()
-    return render_template("feed.html", posts=posts)
+    posts = posts_with_stats(viewer_id=g.user["id"], limit=50)
+    return render_template("feed.html", posts=posts, comments_by_post=comments_for_posts(posts))
 
 
 @app.route("/posts", methods=["POST"])
@@ -186,12 +231,64 @@ def create_post():
         db().execute("INSERT INTO posts(user_id,body) VALUES(?,?)", (g.user["id"], body))
         db().commit()
         flash("Post published!", "success")
-    return redirect(url_for("feed"))
+    return redirect(request.referrer if request.referrer and request.referrer.startswith("/") else url_for("feed"))
+
+
+@app.route("/posts/<int:post_id>/like", methods=["POST"])
+@signed_in
+def toggle_like(post_id):
+    conn = db()
+    exists = conn.execute("SELECT 1 FROM posts WHERE id=?", (post_id,)).fetchone()
+    if exists is None:
+        abort(404)
+    liked = conn.execute("SELECT 1 FROM likes WHERE user_id=? AND post_id=?", (g.user["id"], post_id)).fetchone()
+    if liked:
+        conn.execute("DELETE FROM likes WHERE user_id=? AND post_id=?", (g.user["id"], post_id))
+    else:
+        conn.execute("INSERT OR IGNORE INTO likes(user_id,post_id) VALUES(?,?)", (g.user["id"], post_id))
+    conn.commit()
+    return redirect(request.referrer if request.referrer and request.referrer.startswith("/") else url_for("feed"))
+
+
+@app.route("/posts/<int:post_id>/comment", methods=["POST"])
+@signed_in
+def add_comment(post_id):
+    body = request.form.get("body", "").strip()
+    if not db().execute("SELECT 1 FROM posts WHERE id=?", (post_id,)).fetchone():
+        abort(404)
+    if not body or len(body) > 500:
+        flash("Comments must be between 1 and 500 characters.", "error")
+    else:
+        db().execute("INSERT INTO comments(user_id,post_id,body) VALUES(?,?,?)", (g.user["id"], post_id, body))
+        db().commit()
+        flash("Comment added.", "success")
+    return redirect(request.referrer if request.referrer and request.referrer.startswith("/") else url_for("feed"))
+
+
+@app.route("/follow/<username>", methods=["POST"])
+@signed_in
+def toggle_follow(username):
+    person = db().execute("SELECT id,username FROM users WHERE username=? COLLATE NOCASE", (username,)).fetchone()
+    if person is None:
+        abort(404)
+    if person["id"] == g.user["id"]:
+        flash("You can't follow your own profile.", "error")
+    else:
+        existing = db().execute("SELECT 1 FROM follows WHERE follower_id=? AND followed_id=?", (g.user["id"], person["id"])).fetchone()
+        if existing:
+            db().execute("DELETE FROM follows WHERE follower_id=? AND followed_id=?", (g.user["id"], person["id"]))
+            flash("You unfollowed @" + person["username"] + ".", "info")
+        else:
+            db().execute("INSERT OR IGNORE INTO follows(follower_id,followed_id) VALUES(?,?)", (g.user["id"], person["id"]))
+            flash("You're now following @" + person["username"] + ".", "success")
+        db().commit()
+    return redirect(url_for("profile", username=person["username"]))
 
 
 @app.route("/profile/<username>", methods=["GET", "POST"])
 def profile(username):
-    person = db().execute(
+    conn = db()
+    person = conn.execute(
         "SELECT id,username,bio,created_at FROM users WHERE username=? COLLATE NOCASE", (username,)
     ).fetchone()
     if person is None:
@@ -203,12 +300,15 @@ def profile(username):
         if len(bio) > 240:
             flash("Bio must be 240 characters or fewer.", "error")
         else:
-            db().execute("UPDATE users SET bio=? WHERE id=?", (bio, person["id"]))
-            db().commit()
+            conn.execute("UPDATE users SET bio=? WHERE id=?", (bio, person["id"]))
+            conn.commit()
             flash("Profile saved.", "success")
             return redirect(url_for("profile", username=person["username"]))
-    posts = db().execute("SELECT body,created_at FROM posts WHERE user_id=? ORDER BY id DESC LIMIT 30", (person["id"],)).fetchall()
-    return render_template("profile.html", profile_user=person, posts=posts)
+    posts = posts_with_stats("p.user_id=?", (person["id"],), g.user["id"] if g.user else None, 30)
+    followers = conn.execute("SELECT COUNT(*) AS n FROM follows WHERE followed_id=?", (person["id"],)).fetchone()["n"]
+    following = conn.execute("SELECT COUNT(*) AS n FROM follows WHERE follower_id=?", (person["id"],)).fetchone()["n"]
+    is_following = bool(g.user and conn.execute("SELECT 1 FROM follows WHERE follower_id=? AND followed_id=?", (g.user["id"], person["id"])).fetchone())
+    return render_template("profile.html", profile_user=person, posts=posts, comments_by_post=comments_for_posts(posts), followers=followers, following=following, is_following=is_following)
 
 
 @app.errorhandler(400)
