@@ -40,7 +40,8 @@ def init_db():
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY, username TEXT NOT NULL COLLATE NOCASE UNIQUE,
       email TEXT NOT NULL COLLATE NOCASE UNIQUE, password_hash TEXT NOT NULL,
-      bio TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      bio TEXT NOT NULL DEFAULT '', is_admin INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TABLE IF NOT EXISTS posts (
       id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -65,7 +66,23 @@ def init_db():
       PRIMARY KEY (follower_id, followed_id),
       CHECK (follower_id != followed_id)
     );
+    CREATE TABLE IF NOT EXISTS notifications (
+      id INTEGER PRIMARY KEY,
+      recipient_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      actor_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK(kind IN ('like','comment','follow')),
+      post_id INTEGER REFERENCES posts(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      is_read INTEGER NOT NULL DEFAULT 0
+    );
     """)
+    # Safe schema migration for databases created by an earlier ARENA version.
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+    if "is_admin" not in columns:
+        conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
+    admin_name = os.environ.get("ARENA_ADMIN_USERNAME", "").strip()
+    if admin_name:
+        conn.execute("UPDATE users SET is_admin=1 WHERE username=? COLLATE NOCASE", (admin_name,))
     conn.commit()
     conn.close()
 
@@ -96,7 +113,7 @@ def current_user():
     g.user = None
     if session.get("user_id"):
         g.user = db().execute(
-            "SELECT id, username, email, bio, created_at FROM users WHERE id=?",
+            "SELECT id, username, email, bio, is_admin, created_at FROM users WHERE id=?",
             (session["user_id"],)
         ).fetchone()
         if g.user is None:
@@ -171,8 +188,8 @@ def register():
         else:
             try:
                 cur = db().execute(
-                    "INSERT INTO users(username,email,password_hash) VALUES(?,?,?)",
-                    (username, email, generate_password_hash(password))
+                    "INSERT INTO users(username,email,password_hash,is_admin) VALUES(?,?,?,?)",
+                    (username, email, generate_password_hash(password), int(bool(os.environ.get("ARENA_ADMIN_USERNAME")) and username.casefold() == os.environ.get("ARENA_ADMIN_USERNAME", "").strip().casefold()))
                 )
                 db().commit()
                 session.clear()
@@ -246,6 +263,9 @@ def toggle_like(post_id):
         conn.execute("DELETE FROM likes WHERE user_id=? AND post_id=?", (g.user["id"], post_id))
     else:
         conn.execute("INSERT OR IGNORE INTO likes(user_id,post_id) VALUES(?,?)", (g.user["id"], post_id))
+        owner = conn.execute("SELECT user_id FROM posts WHERE id=?", (post_id,)).fetchone()["user_id"]
+        if owner != g.user["id"]:
+            conn.execute("INSERT INTO notifications(recipient_id,actor_id,kind,post_id) VALUES(?,?,?,?)", (owner, g.user["id"], "like", post_id))
     conn.commit()
     return redirect(request.referrer if request.referrer and request.referrer.startswith("/") else url_for("feed"))
 
@@ -259,8 +279,12 @@ def add_comment(post_id):
     if not body or len(body) > 500:
         flash("Comments must be between 1 and 500 characters.", "error")
     else:
-        db().execute("INSERT INTO comments(user_id,post_id,body) VALUES(?,?,?)", (g.user["id"], post_id, body))
-        db().commit()
+        conn = db()
+        owner = conn.execute("SELECT user_id FROM posts WHERE id=?", (post_id,)).fetchone()["user_id"]
+        conn.execute("INSERT INTO comments(user_id,post_id,body) VALUES(?,?,?)", (g.user["id"], post_id, body))
+        if owner != g.user["id"]:
+            conn.execute("INSERT INTO notifications(recipient_id,actor_id,kind,post_id) VALUES(?,?,?,?)", (owner, g.user["id"], "comment", post_id))
+        conn.commit()
         flash("Comment added.", "success")
     return redirect(request.referrer if request.referrer and request.referrer.startswith("/") else url_for("feed"))
 
@@ -280,9 +304,53 @@ def toggle_follow(username):
             flash("You unfollowed @" + person["username"] + ".", "info")
         else:
             db().execute("INSERT OR IGNORE INTO follows(follower_id,followed_id) VALUES(?,?)", (g.user["id"], person["id"]))
+            db().execute("INSERT INTO notifications(recipient_id,actor_id,kind) VALUES(?,?,?)", (person["id"], g.user["id"], "follow"))
             flash("You're now following @" + person["username"] + ".", "success")
         db().commit()
     return redirect(url_for("profile", username=person["username"]))
+
+
+@app.route("/notifications")
+@signed_in
+def notifications():
+    conn = db()
+    items = conn.execute("""
+        SELECT n.id,n.kind,n.post_id,n.created_at,n.is_read,u.username
+        FROM notifications n JOIN users u ON u.id=n.actor_id
+        WHERE n.recipient_id=? ORDER BY n.id DESC LIMIT 100
+    """, (g.user["id"],)).fetchall()
+    conn.execute("UPDATE notifications SET is_read=1 WHERE recipient_id=?", (g.user["id"],))
+    conn.commit()
+    return render_template("notifications.html", notifications=items)
+
+
+@app.route("/admin")
+@signed_in
+def admin_dashboard():
+    if not g.user["is_admin"]:
+        abort(403)
+    stats = {
+        "users": db().execute("SELECT COUNT(*) FROM users").fetchone()[0],
+        "posts": db().execute("SELECT COUNT(*) FROM posts").fetchone()[0],
+        "comments": db().execute("SELECT COUNT(*) FROM comments").fetchone()[0],
+        "reports": 0,
+    }
+    recent_posts = db().execute("""
+        SELECT p.id,p.body,p.created_at,u.username FROM posts p
+        JOIN users u ON u.id=p.user_id ORDER BY p.id DESC LIMIT 30
+    """).fetchall()
+    return render_template("admin.html", stats=stats, posts=recent_posts)
+
+
+@app.route("/admin/posts/<int:post_id>/delete", methods=["POST"])
+@signed_in
+def admin_delete_post(post_id):
+    if not g.user["is_admin"]:
+        abort(403)
+    db().execute("DELETE FROM posts WHERE id=?", (post_id,))
+    db().commit()
+    flash("Post removed by administrator.", "success")
+    return redirect(url_for("admin_dashboard"))
 
 
 @app.route("/profile/<username>", methods=["GET", "POST"])
