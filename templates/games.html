@@ -1,5 +1,17 @@
 {% extends "base.html" %}{% block title %}Play games · ARENA{% endblock %}{% block content %}
 <div class="eyebrow">ARENA arcade</div><h1>Pick a game.<br><span class="gradient">Press play.</span></h1><p class="muted" style="max-width:650px">Jump into quick browser games right here. No downloads or extra accounts needed. Challenge a friend on the same device or beat your own best.</p>
+<section class="poki-section" aria-labelledby="poki-title">
+<div class="eyebrow">More games · Poki picks</div><h2 id="poki-title">Play more from Poki</h2>
+<p class="muted">Explore popular browser games hosted on Poki. These open on Poki's official website in a new tab; ARENA doesn't copy or host their game files.</p>
+<div class="grid poki-grid">
+<article class="card poki-card"><div class="poki-icon" aria-hidden="true">🏃</div><h3>Subway Surfers</h3><p class="muted">Fast-paced endless runner.</p><a class="btn" href="https://poki.com/en/g/subway-surfers" target="_blank" rel="noopener noreferrer">Play on Poki ↗</a></article>
+<article class="card poki-card"><div class="poki-icon" aria-hidden="true">🛒</div><h3>Monkey Mart</h3><p class="muted">Build and manage a busy market.</p><a class="btn" href="https://poki.com/en/g/monkey-mart" target="_blank" rel="noopener noreferrer">Play on Poki ↗</a></article>
+<article class="card poki-card"><div class="poki-icon" aria-hidden="true">🧩</div><h3>Blocky Blast Puzzle</h3><p class="muted">A quick block-clearing puzzle.</p><a class="btn" href="https://poki.com/en/g/blocky-blast-puzzle" target="_blank" rel="noopener noreferrer">Play on Poki ↗</a></article>
+<article class="card poki-card"><div class="poki-icon" aria-hidden="true">🏈</div><h3>Retro Bowl</h3><p class="muted">Build a team and lead a football season.</p><a class="btn" href="https://poki.com/en/g/retro-bowl" target="_blank" rel="noopener noreferrer">Play on Poki ↗</a></article>
+<article class="card poki-card"><div class="poki-icon" aria-hidden="true">🪝</div><h3>Stickman Hook</h3><p class="muted">Swing through levels and master your timing.</p><a class="btn" href="https://poki.com/en/g/stickman-hook" target="_blank" rel="noopener noreferrer">Play on Poki ↗</a></article>
+<article class="card poki-card"><div class="poki-icon" aria-hidden="true">🌐</div><h3>Discover more</h3><p class="muted">Browse Poki's full collection of free browser games.</p><a class="btn" href="https://poki.com/" target="_blank" rel="noopener noreferrer">Explore Poki ↗</a></article>
+</div></section>
+<style>.poki-section{margin:34px 0}.poki-grid{margin:18px 0}.poki-card{display:flex;flex-direction:column;align-items:flex-start}.poki-card h3{margin:5px 0}.poki-card p{flex:1}.poki-icon{font-size:32px;margin-bottom:8px}.poki-card .btn{margin-top:10px}</style>
 <div class="grid" style="margin:26px 0">
 <article class="card"><div class="eyebrow">01 / Strategy</div><h2>Tic-Tac-Toe</h2><p class="muted">A quick local two-player duel. Get three in a row to win.</p><button type="button" onclick="showGame('ttt')">Play Tic-Tac-Toe ↗</button></article>
 <article class="card"><div class="eyebrow">02 / Memory</div><h2>Memory Match</h2><p class="muted">Flip cards, find all six pairs, and try to finish in fewer moves.</p><button type="button" onclick="showGame('memory')">Play Memory Match ↗</button></article>
