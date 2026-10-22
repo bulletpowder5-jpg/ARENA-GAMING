@@ -75,6 +75,31 @@ def init_db():
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       is_read INTEGER NOT NULL DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS groups (
+      id INTEGER PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      description TEXT NOT NULL DEFAULT '', owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS group_members (
+      group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      joined_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(group_id,user_id)
+    );
+    CREATE TABLE IF NOT EXISTS group_posts (
+      id INTEGER PRIMARY KEY, group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      body TEXT NOT NULL CHECK(length(body) BETWEEN 1 AND 1000),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS messages (
+      id INTEGER PRIMARY KEY, sender_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      recipient_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      body TEXT NOT NULL CHECK(length(body) BETWEEN 1 AND 2000),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, is_read INTEGER NOT NULL DEFAULT 0,
+      CHECK(sender_id != recipient_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_messages_pair ON messages(sender_id,recipient_id,id);
+    CREATE INDEX IF NOT EXISTS idx_group_posts ON group_posts(group_id,id);
     """)
     # Safe schema migration for databases created by an earlier ARENA version.
     columns = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
@@ -308,6 +333,126 @@ def toggle_follow(username):
             flash("You're now following @" + person["username"] + ".", "success")
         db().commit()
     return redirect(url_for("profile", username=person["username"]))
+
+
+@app.route("/groups", methods=["GET", "POST"])
+@signed_in
+def groups():
+    conn = db()
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        description = request.form.get("description", "").strip()
+        if not 3 <= len(name) <= 40 or len(description) > 300:
+            flash("Group name must be 3–40 characters; description max is 300.", "error")
+        else:
+            try:
+                cur = conn.execute("INSERT INTO groups(name,description,owner_id) VALUES(?,?,?)", (name,description,g.user["id"]))
+                conn.execute("INSERT INTO group_members(group_id,user_id) VALUES(?,?)", (cur.lastrowid,g.user["id"]))
+                conn.commit()
+                return redirect(url_for("group_detail", group_id=cur.lastrowid))
+            except sqlite3.IntegrityError:
+                flash("A group with that name already exists.", "error")
+    items = conn.execute("""SELECT gr.id,gr.name,gr.description,u.username,
+      (SELECT COUNT(*) FROM group_members gm WHERE gm.group_id=gr.id) AS member_count,
+      EXISTS(SELECT 1 FROM group_members mine WHERE mine.group_id=gr.id AND mine.user_id=?) AS joined
+      FROM groups gr JOIN users u ON u.id=gr.owner_id ORDER BY gr.id DESC LIMIT 100""",(g.user["id"],)).fetchall()
+    return render_template("groups.html", groups=items)
+
+
+@app.route("/groups/<int:group_id>")
+@signed_in
+def group_detail(group_id):
+    conn = db()
+    group = conn.execute("""SELECT gr.id,gr.name,gr.description,gr.owner_id,u.username,
+      (SELECT COUNT(*) FROM group_members gm WHERE gm.group_id=gr.id) AS member_count,
+      EXISTS(SELECT 1 FROM group_members mine WHERE mine.group_id=gr.id AND mine.user_id=?) AS joined
+      FROM groups gr JOIN users u ON u.id=gr.owner_id WHERE gr.id=?""",(g.user["id"],group_id)).fetchone()
+    if group is None: abort(404)
+    posts = conn.execute("SELECT gp.id,gp.body,gp.created_at,u.username FROM group_posts gp JOIN users u ON u.id=gp.user_id WHERE gp.group_id=? ORDER BY gp.id DESC LIMIT 100",(group_id,)).fetchall()
+    return render_template("group_detail.html", group=group, posts=posts)
+
+
+@app.route("/groups/<int:group_id>/join", methods=["POST"])
+@signed_in
+def join_group(group_id):
+    conn = db()
+    group = conn.execute("SELECT id,name FROM groups WHERE id=?",(group_id,)).fetchone()
+    if group is None: abort(404)
+    conn.execute("INSERT OR IGNORE INTO group_members(group_id,user_id) VALUES(?,?)",(group_id,g.user["id"]))
+    conn.commit()
+    flash("You joined " + group["name"] + ".", "success")
+    return redirect(url_for("group_detail",group_id=group_id))
+
+
+@app.route("/groups/<int:group_id>/leave", methods=["POST"])
+@signed_in
+def leave_group(group_id):
+    conn = db()
+    group = conn.execute("SELECT id,name,owner_id FROM groups WHERE id=?",(group_id,)).fetchone()
+    if group is None: abort(404)
+    if group["owner_id"] == g.user["id"]:
+        flash("Group owners cannot leave their own group.", "error")
+    else:
+        conn.execute("DELETE FROM group_members WHERE group_id=? AND user_id=?",(group_id,g.user["id"]))
+        conn.commit()
+        flash("You left " + group["name"] + ".", "info")
+    return redirect(url_for("group_detail",group_id=group_id))
+
+
+@app.route("/groups/<int:group_id>/posts", methods=["POST"])
+@signed_in
+def group_post(group_id):
+    conn = db()
+    if not conn.execute("SELECT 1 FROM group_members WHERE group_id=? AND user_id=?",(group_id,g.user["id"])).fetchone():
+        flash("Join this group before posting.", "error")
+        return redirect(url_for("group_detail",group_id=group_id))
+    body = request.form.get("body","").strip()
+    if not body or len(body)>1000:
+        flash("Group posts must be between 1 and 1,000 characters.", "error")
+    else:
+        conn.execute("INSERT INTO group_posts(group_id,user_id,body) VALUES(?,?,?)",(group_id,g.user["id"],body))
+        conn.commit()
+        flash("Group post published.", "success")
+    return redirect(url_for("group_detail",group_id=group_id))
+
+
+@app.route("/messages")
+@signed_in
+def messages():
+    items = db().execute("""SELECT u.username,m.body AS last_body,m.created_at,
+      (SELECT COUNT(*) FROM messages unread WHERE unread.sender_id=u.id AND unread.recipient_id=? AND unread.is_read=0) AS unread_count
+      FROM users u JOIN (
+        SELECT CASE WHEN sender_id=? THEN recipient_id ELSE sender_id END AS other_id, MAX(id) AS last_id
+        FROM messages WHERE sender_id=? OR recipient_id=? GROUP BY other_id
+      ) conv ON conv.other_id=u.id JOIN messages m ON m.id=conv.last_id ORDER BY m.id DESC""",
+      (g.user["id"],g.user["id"],g.user["id"],g.user["id"])).fetchall()
+    return render_template("messages.html", conversations=items)
+
+
+@app.route("/messages/<username>", methods=["GET","POST"])
+@signed_in
+def message_thread(username):
+    conn = db()
+    other = conn.execute("SELECT id,username FROM users WHERE username=? COLLATE NOCASE",(username,)).fetchone()
+    if other is None: abort(404)
+    if other["id"] == g.user["id"]:
+        flash("Choose another player to message.", "error")
+        return redirect(url_for("messages"))
+    if request.method == "POST":
+        body = request.form.get("body","").strip()
+        if not body or len(body)>2000:
+            flash("Messages must be between 1 and 2,000 characters.", "error")
+        else:
+            conn.execute("INSERT INTO messages(sender_id,recipient_id,body) VALUES(?,?,?)",(g.user["id"],other["id"],body))
+            conn.commit()
+            return redirect(url_for("message_thread",username=other["username"]))
+    conn.execute("UPDATE messages SET is_read=1 WHERE sender_id=? AND recipient_id=?",(other["id"],g.user["id"]))
+    conn.commit()
+    thread = conn.execute("""SELECT m.sender_id,m.body,m.created_at,u.username FROM messages m
+      JOIN users u ON u.id=m.sender_id
+      WHERE (m.sender_id=? AND m.recipient_id=?) OR (m.sender_id=? AND m.recipient_id=?)
+      ORDER BY m.id ASC LIMIT 200""",(g.user["id"],other["id"],other["id"],g.user["id"])).fetchall()
+    return render_template("message_thread.html", other=other, messages=thread)
 
 
 @app.route("/notifications")
