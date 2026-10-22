@@ -190,6 +190,11 @@ def home():
     return render_template("index.html", posts=posts)
 
 
+@app.route("/games")
+def games():
+    return render_template("games.html")
+
+
 @app.route("/health")
 @app.route("/healthz")
 def health():
