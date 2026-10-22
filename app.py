@@ -17,13 +17,18 @@ app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
 DATA_DIR = Path(os.environ.get("ARENA_DATA_DIR", str(Path(__file__).parent / "instance")))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATABASE = DATA_DIR / "arena.db"
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 
 
 def db():
     if "db" not in g:
-        g.db = sqlite3.connect(DATABASE)
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA foreign_keys=ON")
+        if DATABASE_URL:
+            from db_backend import connect_database
+            g.db = connect_database(DATABASE_URL)
+        else:
+            g.db = sqlite3.connect(DATABASE)
+            g.db.row_factory = sqlite3.Row
+            g.db.execute("PRAGMA foreign_keys=ON")
     return g.db
 
 
@@ -35,6 +40,16 @@ def close_db(_error=None):
 
 
 def init_db():
+    if DATABASE_URL:
+        from db_backend import initialize_database, connect_database
+        initialize_database(DATABASE_URL)
+        admin_name = os.environ.get("ARENA_ADMIN_USERNAME", "").strip()
+        if admin_name:
+            conn = connect_database(DATABASE_URL)
+            conn.execute("UPDATE users SET is_admin=1 WHERE username=? COLLATE NOCASE", (admin_name,))
+            conn.commit()
+            conn.close()
+        return
     conn = sqlite3.connect(DATABASE)
     conn.executescript("""
     CREATE TABLE IF NOT EXISTS users (
@@ -480,9 +495,9 @@ def admin_dashboard():
     if not g.user["is_admin"]:
         abort(403)
     stats = {
-        "users": db().execute("SELECT COUNT(*) FROM users").fetchone()[0],
-        "posts": db().execute("SELECT COUNT(*) FROM posts").fetchone()[0],
-        "comments": db().execute("SELECT COUNT(*) FROM comments").fetchone()[0],
+        "users": db().execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"],
+        "posts": db().execute("SELECT COUNT(*) AS count FROM posts").fetchone()["count"],
+        "comments": db().execute("SELECT COUNT(*) AS count FROM comments").fetchone()["count"],
         "reports": 0,
     }
     recent_posts = db().execute("""
