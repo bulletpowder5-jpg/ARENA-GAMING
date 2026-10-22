@@ -1,0 +1,98 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ARENA | Gaming Community</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #0b1020;
+            color: #f4f6ff;
+        }
+        header {
+            padding: 22px 8%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #252c42;
+        }
+        .logo { color: #65e4ff; font-size: 28px; font-weight: bold; }
+        nav a {
+            color: #d5d9e8;
+            text-decoration: none;
+            margin-left: 20px;
+        }
+        main { padding: 90px 8%; text-align: center; }
+        h1 { font-size: clamp(42px, 7vw, 76px); margin-bottom: 18px; }
+        h1 span { color: #65e4ff; }
+        p { color: #aeb8d0; line-height: 1.7; }
+        .button {
+            display: inline-block;
+            margin-top: 22px;
+            padding: 14px 24px;
+            background: #65e4ff;
+            color: #0b1020;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 18px;
+            margin-top: 65px;
+            text-align: left;
+        }
+        .feature {
+            padding: 24px;
+            background: #151d32;
+            border: 1px solid #28334d;
+            border-radius: 12px;
+        }
+        footer {
+            text-align: center;
+            padding: 28px;
+            color: #8995af;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo">ARENA</div>
+        <nav>
+            <a href="/">Home</a>
+            <a href="#communities">Communities</a>
+            <a href="#news">Gaming News</a>
+        </nav>
+    </header>
+
+    <main>
+        <p>YOUR GAME. YOUR PEOPLE. YOUR ARENA.</p>
+        <h1>Enter the <span>ARENA.</span></h1>
+        <p>Discover gaming communities, share your gaming journey,
+           and connect with players who share your passion.</p>
+        <a class="button" href="#communities">Explore ARENA</a>
+
+        <section class="features" id="communities">
+            <div class="feature">
+                <h2>🎮 Communities</h2>
+                <p>Find your people and connect around your favorite games.</p>
+            </div>
+            <div class="feature" id="news">
+                <h2>📰 Gaming News</h2>
+                <p>Make room for gaming updates and community stories.</p>
+            </div>
+            <div class="feature">
+                <h2>💬 Connect</h2>
+                <p>Build connections with other players in one place.</p>
+            </div>
+        </section>
+    </main>
+
+    <footer>© 2026 ARENA Gaming Community</footer>
+</body>
+</html>
