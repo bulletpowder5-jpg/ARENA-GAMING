@@ -16,7 +16,7 @@
 .snake-controls,.tile-controls{display:grid;gap:8px;justify-items:center;margin-top:12px;max-width:360px}.snake-controls button,.tile-controls button{min-width:54px;min-height:42px}.board-2048{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;width:min(100%,360px);padding:8px;background:#26354b;border-radius:12px;margin:16px 0}.tile-2048{aspect-ratio:1;display:flex;align-items:center;justify-content:center;border-radius:7px;background:#111c2e;color:#eef4ff;font-weight:900;font-size:clamp(18px,5vw,28px);overflow:hidden}.tile-2048[data-v="2"],.tile-2048[data-v="4"]{background:#34445f}.tile-2048[data-v="8"],.tile-2048[data-v="16"]{background:#236c79}.tile-2048[data-v="32"],.tile-2048[data-v="64"]{background:#6453a8}.tile-2048[data-v="128"],.tile-2048[data-v="256"],.tile-2048[data-v="512"],.tile-2048[data-v="1024"],.tile-2048[data-v="2048"]{background:#b17b32;color:white}</style>
 <script>
 const panels=['ttt','memory','reaction','snake','2048'];
-function showGame(name){panels.forEach(id=>{document.getElementById('game-'+id).hidden=id!==name});document.getElementById('game-'+name).scrollIntoView({behavior:'smooth',block:'start'});}
+function showGame(name){panels.forEach(id=>{document.getElementById('game-'+id).hidden=id!==name});document.getElementById('game-'+name).scrollIntoView({behavior:'smooth',block:'start'});if(name==='snake')startSnake();}
 function hideGames(){panels.forEach(id=>document.getElementById('game-'+id).hidden=true);stopSnake();}
 let tttCells=Array(9).fill(''),tttTurn='X',tttDone=false;
 function resetTTT(){tttCells=Array(9).fill('');tttTurn='X';tttDone=false;renderTTT();}
