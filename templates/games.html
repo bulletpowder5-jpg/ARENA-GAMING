@@ -1,5 +1,26 @@
 {% extends "base.html" %}{% block title %}Play games · ARENA<script src="{{ url_for('static', filename='arcade-extra.js') }}"></script>
 {% endblock %}{% block content %}
+<style>
+/* ARENA neon arcade layer: visual-only enhancements preserve existing game logic. */
+.arcade-tools{border-color:#2b3c66;background:linear-gradient(135deg,#101a32,#090d1b)}
+.arcade-toolbar{display:grid;grid-template-columns:2fr 1fr;gap:16px}
+.arcade-search span{display:block;color:#a4afcc;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;margin-bottom:7px}
+.arcade-search input,.arcade-search select{width:100%;min-height:44px;border:1px solid #33446d;border-radius:9px;background:#080d1c;color:#f4f7ff;padding:10px 12px;font:inherit}
+.arcade-stats{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:18px;color:#a4afcc;font-size:13px}
+.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#35f2bd;box-shadow:0 0 12px #35f2bd;margin-right:6px}
+.game-panel{scroll-margin-top:90px;border-color:#344b80;background:radial-gradient(ellipse at 90% 0%,#17244a 0,transparent 48%),linear-gradient(145deg,#10182b,#080c18);box-shadow:0 20px 55px #0007,0 0 28px #22d3ff0b}
+.game-panel h2{font-size:clamp(25px,4vw,38px);letter-spacing:-.03em}
+.game-panel canvas{margin-top:16px;max-width:100%;border:1px solid #3b5791!important;border-radius:13px!important;box-shadow:0 0 0 1px #22d3ff12,0 0 28px #4f46e51c;background-color:#070b18!important}
+.game-panel button{border-radius:9px}.game-panel .secondary{background:#0a1022;color:#dce7ff;border-color:#33446d}
+.mole-hole,.ttt-cell,.memory-card,.tile-2048{border:1px solid #354c7b!important;border-radius:10px!important;background:linear-gradient(145deg,#141f3a,#0a1022)!important;color:#eaf4ff!important;box-shadow:inset 0 1px #ffffff0a;transition:transform .15s,border-color .15s,box-shadow .15s}
+.mole-hole:hover,.ttt-cell:hover,.memory-card:hover{border-color:#22d3ff!important;box-shadow:0 0 18px #22d3ff22}
+.mole-hole.target,.memory-card.matched{border-color:#35f2bd!important;box-shadow:0 0 18px #35f2bd30}
+.tile-2048[data-v="2"]{background:#15243d!important}.tile-2048[data-v="4"]{background:#183651!important}.tile-2048[data-v="8"]{background:#174c68!important}.tile-2048[data-v="16"]{background:#155f7c!important}.tile-2048[data-v="32"]{background:#2855a1!important}.tile-2048[data-v="64"]{background:#493c9a!important}.tile-2048[data-v="128"],.tile-2048[data-v="256"],.tile-2048[data-v="512"]{background:linear-gradient(135deg,#155eaa,#7138b8)!important;box-shadow:0 0 18px #22d3ff24}
+.reaction-pad{min-height:110px;width:100%;margin-top:14px;background:#25172b;color:#ffd6e9;border-color:#854c75}.reaction-pad.ready{background:#064e3b;color:#d1fae5;border-color:#35f2bd;box-shadow:0 0 30px #35f2bd44}
+.color-prompt{font-size:clamp(30px,6vw,52px);font-weight:950;letter-spacing:.08em;text-align:center;padding:24px;border:1px solid #344b80;border-radius:14px;background:linear-gradient(135deg,#111a34,#090d1b)}
+@media(max-width:650px){.arcade-toolbar{grid-template-columns:1fr}.arcade-stats{align-items:flex-start}.game-panel{padding:16px}.game-panel canvas{width:100%;height:auto}}
+@media(prefers-reduced-motion:reduce){.mole-hole,.ttt-cell,.memory-card{transition:none}}
+</style>
 <div class="eyebrow">ARENA arcade</div><h1>Pick a game.<br><span class="gradient">Press play.</span></h1><p class="muted" style="max-width:650px">Jump into quick browser games right here. No downloads or extra accounts needed. Challenge a friend on the same device or beat your own best.</p>
 
 <section class="arcade-tools card" aria-label="Find a game">
